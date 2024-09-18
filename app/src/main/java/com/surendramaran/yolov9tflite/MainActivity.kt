@@ -38,6 +38,10 @@ import com.surendramaran.yolov9tflite.Constants.MODEL_PATH
 import com.surendramaran.yolov9tflite.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity(), Detector.DetectorListener {
     private lateinit var binding: ActivityMainBinding
@@ -53,7 +57,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
     private lateinit var cameraExecutor: ExecutorService
 
     private var lastScreenshotTime: Long = 0
-    private val screenshotCooldown: Long = 5000 // 5 seconds cooldown
+    private val screenshotCooldown: Long = 10000 // 10 seconds cooldown
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -231,7 +235,8 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
                         analyzer.clearAnalyzer()
                         analyzer.setAnalyzer(cameraExecutor) { imageProxy ->
                             val bitmap = imageProxy.toBitmap()
-                            saveScreenshotToGallery(bitmap)
+                            val imageuri = saveScreenshotToGallery(bitmap)
+                            imageuri?.let {sendEmail(it)}
                             imageProxy.close()
                             lastScreenshotTime = currentTime
                             // Immediately rebind the use cases to continue detection
@@ -242,7 +247,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
             }
         }
     }
-    private fun saveScreenshotToGallery(bitmap: Bitmap) {
+    private fun saveScreenshotToGallery(bitmap: Bitmap): Uri? {
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "Person_${System.currentTimeMillis()}.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
@@ -252,17 +257,47 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
         val resolver = contentResolver
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
-        uri?.let {
+        return uri?.also {
             resolver.openOutputStream(it)?.use { outputStream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
-                runOnUiThread {
-                    Toast.makeText(this, "Screenshot saved to gallery", Toast.LENGTH_SHORT).show()
+                if (bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)) {
+                    runOnUiThread {
+                        Toast.makeText(this, "Screenshot saved to gallery", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(this, "Failed to save screenshot", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } ?: runOnUiThread {
                 Toast.makeText(this, "Failed to open OutputStream", Toast.LENGTH_SHORT).show()
             }
-        } ?: runOnUiThread {
-            Toast.makeText(this, "Failed to save screenshot", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
+    private fun sendEmail(imageUri: Uri) {
+        GlobalScope.launch(Dispatchers.IO) {
+            val emailSender = EmailSender(
+                context = applicationContext,
+                senderEmail = "ashimsapkota000@gmail.com",
+                senderPassword = "sdtssodyvnuzphjj",
+                recipientEmail = "ashimsapkota0.32@gmail.com"
+            )
+
+            try {
+                emailSender.sendEmail(
+                    subject = "Person Detected",
+                    body = "A person was detected at ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}",
+                    imageUri = imageUri
+                )
+                runOnUiThread {
+                    Toast.makeText(applicationContext, "Email sent successfully", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(applicationContext, "Failed to send email: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
