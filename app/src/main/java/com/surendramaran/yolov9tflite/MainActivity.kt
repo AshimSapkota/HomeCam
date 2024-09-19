@@ -58,6 +58,9 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
 
     private var lastScreenshotTime: Long = 0
     private val screenshotCooldown: Long = 10000 // 10 seconds cooldown
+    private var lastEmailTime: Long = 0
+    private val emailCooldown: Long = 60000 // 1 minute cooldown
+    private var latestScreenshotUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -235,10 +238,18 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener {
                         analyzer.clearAnalyzer()
                         analyzer.setAnalyzer(cameraExecutor) { imageProxy ->
                             val bitmap = imageProxy.toBitmap()
-                            val imageuri = saveScreenshotToGallery(bitmap)
-                            imageuri?.let {sendEmail(it)}
+                            latestScreenshotUri = saveScreenshotToGallery(bitmap)
                             imageProxy.close()
                             lastScreenshotTime = currentTime
+
+                            // Check if it's time to send an email
+                            if (currentTime - lastEmailTime > emailCooldown) {
+                                latestScreenshotUri?.let {
+                                    sendEmail(it)
+                                    lastEmailTime = currentTime
+                                }
+                            }
+
                             // Immediately rebind the use cases to continue detection
                             runOnUiThread { bindCameraUseCases() }
                         }
